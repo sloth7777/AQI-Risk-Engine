@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AQI Risk Engine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:  #4a9a4a;
+      --yellow: #c8a020;
+      --orange: #d07030;
+      --red:    #c04040;
+      --purple: #9040a0;
+      --maroon: #8a1a1a;
+      --bg:     #0a0a0f;
+      --card:   #111118;
+      --border: #222230;
+      --text:   #e8e4d8;
+      --muted:  #5a5a65;
+      --mono:   'JetBrains Mono', monospace;
+      --sans:   'Syne', sans-serif;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      min-height: 100vh;
+      color: var(--text);
+      padding: 2rem 1.5rem 5rem;
+      overflow-x: hidden;
+    }
+
+    /* ── Ambient background ── */
+    .orb {
+      position: fixed; border-radius: 50%;
+      filter: blur(100px); pointer-events: none; z-index: 0;
+      transition: background 2s ease;
+    }
+    .orb1 { width: 500px; height: 500px; top: -150px; right: -150px; background: rgba(30,80,30,0.18); }
+    .orb2 { width: 400px; height: 400px; bottom: 0; left: -120px;    background: rgba(140,40,20,0.12); }
+    .noise {
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+    }
+
+    .wrap { position: relative; z-index: 1; max-width: 700px; margin: 0 auto; }
+
+    /* ── Header ── */
+    .header { margin-bottom: 2.5rem; }
+    .eyebrow {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em;
+      text-transform: uppercase; color: #3a6a3a; margin-bottom: 0.5rem;
+    }
+    h1 { font-size: clamp(26px, 5vw, 42px); font-weight: 800; line-height: 1.06; letter-spacing: -0.025em; }
+    h1 em { font-style: normal; color: var(--green); }
+    .subtitle { font-size: 13px; color: var(--muted); margin-top: 0.4rem; }
+
+    /* API status pill */
+    .api-pill {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em;
+      text-transform: uppercase; padding: 4px 10px; border-radius: 20px;
+      border: 0.5px solid var(--border); background: var(--card);
+      color: var(--muted); margin-top: 0.9rem; transition: all 0.4s;
+    }
+    .api-dot { width: 6px; height: 6px; border-radius: 50%; background: #333; transition: all 0.4s; }
+    .api-pill.online  { color: var(--green);  border-color: #2a4a2a; }
+    .api-pill.online  .api-dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .api-pill.offline { color: var(--red);    border-color: #4a2020; }
+    .api-pill.offline .api-dot { background: var(--red); }
+
+    /* ── Form cards ── */
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 1.1rem; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr;     gap: 10px; margin-bottom: 1.1rem; }
+    @media (max-width: 500px) { .grid3 { grid-template-columns: 1fr 1fr; } }
+
+    .card {
+      background: var(--card); border: 0.5px solid var(--border);
+      border-radius: 12px; padding: 13px 15px; transition: border-color 0.2s;
+    }
+    .card:focus-within { border-color: var(--green); }
+
+    .clabel {
+      font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
+      color: var(--green); text-transform: uppercase;
+      margin-bottom: 6px; display: flex; align-items: center; gap: 5px;
+    }
+    .cunit { color: #3a5a3a; letter-spacing: 0; }
+
+    .cinput {
+      background: none; border: none; outline: none; width: 100%;
+      font-family: var(--mono); font-size: 19px; font-weight: 500; color: var(--text);
+    }
+    .cinput::placeholder { color: #1e1e28; }
+    .cinput::-webkit-outer-spin-button,
+    .cinput::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .cinput[type=number] { -moz-appearance: textfield; }
+
+    /* city input */
+    .city-card { margin-bottom: 1.1rem; }
+    .city-input {
+      background: none; border: none; outline: none; width: 100%;
+      font-family: var(--sans); font-size: 16px; font-weight: 500; color: var(--text);
+    }
+    .city-input::placeholder { color: #1e1e28; }
+
+    /* toggles */
+    .toggle-card {
+      display: flex; align-items: center; justify-content: space-between;
+      cursor: pointer; user-select: none; gap: 10px;
+    }
+    .toggle-card.active { border-color: var(--green); }
+    .tlabel { font-size: 13px; font-weight: 500; color: #5a5a70; transition: color 0.2s; }
+    .toggle-card.active .tlabel { color: var(--text); }
+    .pill {
+      width: 36px; height: 20px; background: #1a1a25;
+      border: 0.5px solid #2a2a38; border-radius: 10px;
+      position: relative; flex-shrink: 0; transition: background 0.25s, border-color 0.25s;
+    }
+    .toggle-card.active .pill { background: var(--green); border-color: var(--green); }
+    .thumb {
+      width: 14px; height: 14px; background: #2e2e3e; border-radius: 50%;
+      position: absolute; top: 3px; left: 3px;
+      transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), background 0.25s;
+    }
+    .toggle-card.active .thumb { transform: translateX(16px); background: #fff; }
+
+    /* selects */
+    .slabel { font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; color: #2e2e40; text-transform: uppercase; margin-bottom: 8px; }
+    .sselect {
+      background: none; border: none; outline: none; width: 100%; cursor: pointer;
+      font-family: var(--sans); font-size: 15px; font-weight: 500; color: var(--text);
+      -webkit-appearance: none; appearance: none;
+    }
+    .sselect option { background: #14141e; }
+
+    /* ── Button ── */
+    .btn {
+      width: 100%; padding: 17px; border: none; border-radius: 12px;
+      background: var(--green); color: #08080e;
+      font-family: var(--sans); font-size: 15px; font-weight: 700;
+      letter-spacing: 0.03em; cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      display: flex; align-items: center; justify-content: center;
+      gap: 10px; min-height: 54px; margin-bottom: 1.5rem;
+    }
+    .btn:hover:not(:disabled) { background: #5aaa5a; }
+    .btn:active:not(:disabled) { transform: scale(0.985); }
+    .btn:disabled { background: #162816; color: #2a4a2a; cursor: not-allowed; }
+
+    .spinner {
+      display: none; width: 16px; height: 16px;
+      border: 2px solid rgba(0,0,0,0.15); border-top-color: #08080e;
+      border-radius: 50%; animation: spin 0.65s linear infinite;
+    }
+    .btn.loading .btn-text { display: none; }
+    .btn.loading .spinner  { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error banner ── */
+    .error-banner {
+      background: rgba(192,64,64,0.1); border: 0.5px solid #4a2020;
+      border-radius: 10px; padding: 12px 16px; margin-bottom: 1.25rem;
+      font-size: 13px; color: #e08080; display: none;
+      font-family: var(--mono);
+    }
+
+    /* ── Result panel ── */
+    .result {
+      background: #0c0c14; border: 0.5px solid #1c1c28;
+      border-radius: 16px; padding: 1.75rem;
+      display: none; opacity: 0; transform: translateY(14px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .result.show { opacity: 1; transform: translateY(0); }
+
+    /* big number */
+    .aqi-row { display: flex; align-items: baseline; gap: 14px; margin-bottom: 0.9rem; flex-wrap: wrap; }
+    .aqi-num {
+      font-size: clamp(52px, 11vw, 84px); font-weight: 800;
+      letter-spacing: -0.04em; line-height: 1; transition: color 0.5s;
+    }
+    .aqi-badge {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 5px 11px; border-radius: 6px;
+      font-weight: 500; transition: all 0.5s;
+    }
+
+    /* progress bar */
+    .bar-track { height: 5px; background: #181820; border-radius: 3px; margin-bottom: 1.6rem; overflow: hidden; }
+    .bar-fill  { height: 100%; border-radius: 3px; width: 0; transition: width 0.9s cubic-bezier(0.22,1,0.36,1), background 0.5s; }
+
+    /* ML prediction row */
+    .predict-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: #111118; border: 0.5px solid #1c1c28;
+      border-radius: 10px; padding: 14px 16px; margin-bottom: 1.1rem;
+      flex-wrap: wrap; gap: 10px;
+    }
+    .predict-left  { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: #3a3a50; }
+    .predict-val   { font-size: 22px; font-weight: 700; transition: color 0.5s; }
+    .predict-trend {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 4px 9px; border-radius: 6px;
+    }
+    .trend-improving { background: rgba(74,154,74,0.15); color: var(--green); }
+    .trend-worsening { background: rgba(192,64,64,0.15); color: var(--red); }
+    .trend-stable    { background: rgba(200,160,32,0.12); color: var(--yellow); }
+
+    /* health grid */
+    .hgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1.1rem; }
+    .hcard { background: #111118; border: 0.5px solid #1a1a26; border-radius: 10px; padding: 12px 14px; }
+    .hlabel { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: #303040; margin-bottom: 5px; }
+    .hval   { font-size: 13px; font-weight: 500; color: var(--text); }
+
+    /* divider */
+    .div { height: 0.5px; background: #181820; margin: 1.2rem 0; }
+    .sec-title { font-family: var(--mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: #282836; margin-bottom: 11px; }
+
+    /* sub-index bars */
+    .pb-list  { display: flex; flex-direction: column; gap: 8px; }
+    .pb-row   { display: flex; align-items: center; gap: 10px; }
+    .pb-name  { font-family: var(--mono); font-size: 10px; color: #363648; width: 38px; flex-shrink: 0; }
+    .pb-track { flex: 1; height: 3px; background: #181820; border-radius: 2px; overflow: hidden; }
+    .pb-fill  { height: 100%; border-radius: 2px; width: 0; transition: width 0.9s cubic-bezier(0.22,1,0.36,1); }
+    .pb-val   { font-family: var(--mono); font-size: 10px; color: #404050; width: 36px; text-align: right; flex-shrink: 0; }
+
+    /* persona advice */
+    .advice {
+      border-left: 2px solid var(--green); padding-left: 1rem;
+      margin-top: 1.2rem; transition: border-color 0.5s;
+    }
+    .advice-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--green); margin-bottom: 6px; transition: color 0.5s; }
+    .advice-text  { font-size: 13px; color: #7a7a8a; line-height: 1.7; }
+
+    /* hospital alert */
+    .hospital {
+      margin-top: 1rem; background: rgba(192,64,64,0.07);
+      border: 0.5px solid #3a1a1a; border-radius: 10px; padding: 12px 14px;
+    }
+    .hospital-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: #c04040; margin-bottom: 5px; }
+    .hospital-text  { font-size: 13px; color: #a06060; line-height: 1.6; }
+  </style>
+</head>
+<body>
+
+<div class="orb orb1" id="orb1"></div>
+<div class="orb orb2" id="orb2"></div>
+<div class="noise"></div>
+
+<div class="wrap">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Air Quality<br><em>Risk Engine</em></h1>
+    <p class="subtitle">Next-day AQI forecast using your trained model</p>
+    <div class="api-pill" id="api-pill">
+      <div class="api-dot"></div>
+      <span id="api-label">checking api...</span>
+    </div>
+  </div>
+
+  <!-- City -->
+  <div class="card city-card">
+    <div class="clabel">City <span class="cunit">(optional — improves lag features)</span></div>
+    <input class="city-input" id="city" type="text" placeholder="e.g. Delhi, Mumbai, Lucknow…">
+  </div>
+
+  <!-- Pollutants -->
+  <div class="grid3">
+    <div class="card">
+      <div class="clabel">PM2.5 <span class="cunit">µg/m³</span></div>
+      <input class="cinput" id="pm25" type="number" placeholder="120" min="0" max="999">
+    </div>
+    <div class="card">
+      <div class="clabel">PM10 <span class="cunit">µg/m³</span></div>
+      <input class="cinput" id="pm10" type="number" placeholder="180" min="0" max="999">
+    </div>
+    <div class="card">
+      <div class="clabel">NO₂ <span class="cunit">ppb</span></div>
+      <input class="cinput" id="no2" type="number" placeholder="40" min="0" max="500">
+    </div>
+    <div class="card">
+      <div class="clabel">CO <span class="cunit">ppm</span></div>
+      <input class="cinput" id="co" type="number" placeholder="1.2" min="0" max="50" step="0.1">
+    </div>
+    <div class="card">
+      <div class="clabel">SO₂ <span class="cunit">ppb</span></div>
+      <input class="cinput" id="so2" type="number" placeholder="20" min="0" max="500">
+    </div>
+    <div class="card">
+      <div class="clabel">O₃ <span class="cunit">ppb</span></div>
+      <input class="cinput" id="o3" type="number" placeholder="30" min="0" max="500">
+    </div>
+  </div>
+
+  <!-- Season toggles -->
+  <div class="grid2">
+    <div class="card toggle-card" id="wtoggle">
+      <span class="tlabel">Winter season</span>
+      <div class="pill"><div class="thumb"></div></div>
+      <input type="hidden" id="winter" value="0">
+    </div>
+    <div class="card toggle-card" id="mtoggle">
+      <span class="tlabel">Monsoon season</span>
+      <div class="pill"><div class="thumb"></div></div>
+      <input type="hidden" id="monsoon" value="0">
+    </div>
+  </div>
+
+  <!-- Selects -->
+  <div class="grid2">
+    <div class="card">
+      <div class="slabel">Persona / User type</div>
+      <select class="sselect" id="persona">
+        <option value="general">General public</option>
+        <option value="child">Child</option>
+        <option value="elderly">Elderly / Senior</option>
+        <option value="respiratory">Asthma / Respiratory</option>
+        <option value="athlete">Outdoor athlete</option>
+      </select>
+    </div>
+    <div class="card">
+      <div class="slabel">Location type</div>
+      <select class="sselect" id="loctype">
+        <option value="urban">Urban</option>
+        <option value="suburban">Suburban</option>
+        <option value="industrial">Industrial zone</option>
+        <option value="rural">Rural</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Error banner -->
+  <div class="error-banner" id="err"></div>
+
+  <!-- Predict button -->
+  <button class="btn" id="predict-btn" onclick="predict()">
+    <span class="btn-text">Predict Next-Day AQI</span>
+    <div class="spinner"></div>
+  </button>
+
+  <!-- Result panel -->
+  <div class="result" id="result">
+
+    <div class="aqi-row">
+      <div class="aqi-num" id="aqi-num">—</div>
+      <div class="aqi-badge" id="aqi-badge">—</div>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="bar-fill"></div></div>
+
+    <!-- ML prediction -->
+    <div class="predict-row">
+      <div>
+        <div class="predict-left">ML model forecast — next 24h</div>
+        <div class="predict-val" id="pred-val">—</div>
+      </div>
+      <div style="text-align:right">
+        <div class="predict-left" style="margin-bottom:4px">trend</div>
+        <div class="predict-trend" id="pred-trend">—</div>
+      </div>
+    </div>
+
+    <!-- Health cards -->
+    <div class="hgrid">
+      <div class="hcard"><div class="hlabel">Risk level</div><div class="hval" id="risk">—</div></div>
+      <div class="hcard"><div class="hlabel">Dominant pollutant</div><div class="hval" id="dominant">—</div></div>
+      <div class="hcard"><div class="hlabel">Outdoor activity</div><div class="hval" id="outdoor">—</div></div>
+      <div class="hcard"><div class="hlabel">Mask</div><div class="hval" id="mask">—</div></div>
+    </div>
+
+    <div class="div"></div>
+
+    <!-- Sub-index breakdown -->
+    <div class="sec-title">Pollutant sub-index breakdown</div>
+    <div class="pb-list" id="pb-list"></div>
+
+    <!-- Persona advisory -->
+    <div class="advice" id="advice-block">
+      <div class="advice-label" id="advice-label">Health advisory</div>
+      <div class="advice-text" id="advice-text">—</div>
+    </div>
+
+    <!-- Hospital alert -->
+    <div class="hospital" id="hospital-block">
+      <div class="hospital-label">🏥 Hospital respiratory alert</div>
+      <div class="hospital-text" id="hospital-text">—</div>
+    </div>
+
+  </div><!-- /result -->
+
+</div><!-- /wrap -->
+
+<script>
+  const API = "http://127.0.0.1:5000";
+
+  // ── Check API health on load ──────────────────────────────
+  async function checkAPI() {
+    const pill  = document.getElementById("api-pill");
+    const label = document.getElementById("api-label");
+    try {
+      const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) });
+      const d = await r.json();
+      if (d.model_loaded) {
+        pill.className  = "api-pill online";
+        label.textContent = "model online";
+      } else {
+        pill.className  = "api-pill offline";
+        label.textContent = "model not loaded";
+      }
+    } catch {
+      pill.className  = "api-pill offline";
+      label.textContent = "api offline — start app.py";
+    }
+  }
+  checkAPI();
+
+  // ── Toggle logic ──────────────────────────────────────────
+  document.getElementById("wtoggle").addEventListener("click", function() {
+    this.classList.toggle("active");
+    document.getElementById("winter").value = this.classList.contains("active") ? 1 : 0;
+  });
+  document.getElementById("mtoggle").addEventListener("click", function() {
+    this.classList.toggle("active");
+    document.getElementById("monsoon").value = this.classList.contains("active") ? 1 : 0;
+  });
+
+  // ── Category metadata ─────────────────────────────────────
+  function getMeta(aqi) {
+    if (aqi <= 50)  return { color:"#4a9a4a", bg:"rgba(74,154,74,0.15)",   label:"Good",                   risk:"Minimal",   outdoor:"Unrestricted",           mask:"Not needed",     pct: aqi/5 };
+    if (aqi <= 100) return { color:"#c8a020", bg:"rgba(200,160,32,0.15)",  label:"Moderate",               risk:"Low",       outdoor:"Generally fine",         mask:"Optional",       pct: 10+(aqi-50)/5 };
+    if (aqi <= 150) return { color:"#d07030", bg:"rgba(208,112,48,0.15)",  label:"Unhealthy (Sensitive)",  risk:"Moderate",  outdoor:"Limit if sensitive",     mask:"Recommended",    pct: 20+(aqi-100)/5 };
+    if (aqi <= 200) return { color:"#c04040", bg:"rgba(192,64,64,0.15)",   label:"Unhealthy",              risk:"High",      outdoor:"Avoid prolonged",        mask:"Strongly advised",pct: 30+(aqi-150)/5 };
+    if (aqi <= 300) return { color:"#9040a0", bg:"rgba(144,64,160,0.15)",  label:"Very Unhealthy",         risk:"Very High", outdoor:"Avoid all outdoor",      mask:"N95 mandatory",  pct: 40+(aqi-200)/10 };
+    return            { color:"#8a1a1a", bg:"rgba(138,26,26,0.2)",         label:"Hazardous",              risk:"Severe",    outdoor:"Stay indoors",           mask:"N95 + sealed",   pct: 50+Math.min((aqi-300)/8,50) };
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("err");
+    el.textContent = msg;
+    el.style.display = "block";
+    setTimeout(() => { el.style.display = "none"; }, 6000);
+  }
+
+  // ── Main predict ──────────────────────────────────────────
+  async function predict() {
+    const btn = document.getElementById("predict-btn");
+    btn.classList.add("loading");
+    btn.disabled = true;
+
+    const body = {
+      pm25:       parseFloat(document.getElementById("pm25").value)   || 0,
+      pm10:       parseFloat(document.getElementById("pm10").value)   || 0,
+      no2:        parseFloat(document.getElementById("no2").value)    || 0,
+      co:         parseFloat(document.getElementById("co").value)     || 0,
+      so2:        parseFloat(document.getElementById("so2").value)    || 0,
+      o3:         parseFloat(document.getElementById("o3").value)     || 0,
+      city:       document.getElementById("city").value.trim(),
+      persona:    document.getElementById("persona").value,
+      loctype: document.getElementById("loctype").value,
+      is_winter:  parseInt(document.getElementById("winter").value),
+      is_monsoon: parseInt(document.getElementById("monsoon").value)
+    };
+
+    try {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 10000);
+
+      const res = await fetch(`${API}/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+      if (!res.ok) {
+        const e = await res.json();
+        showError(e.error || "Server error");
+        return;
+      }
+
+      const d = await res.json();
+      renderResult(d);
+
+    } catch (err) {
+      showError("Cannot reach API. Make sure app.py is running on port 5000.");
+    } finally {
+      btn.classList.remove("loading");
+      btn.disabled = false;
+    }
+  }
+
+  function renderResult(d) {
+    const curMeta  = getMeta(d.current_aqi);
+    const predMeta = getMeta(d.predicted_next_day);
+
+    // Big AQI number (current)
+    document.getElementById("aqi-num").textContent   = d.current_aqi;
+    document.getElementById("aqi-num").style.color   = curMeta.color;
+    document.getElementById("aqi-badge").textContent = curMeta.label;
+    document.getElementById("aqi-badge").style.background = curMeta.bg;
+    document.getElementById("aqi-badge").style.color      = curMeta.color;
+
+    // Progress bar
+    document.getElementById("bar-fill").style.width      = Math.min(curMeta.pct,100)+"%";
+    document.getElementById("bar-fill").style.background = curMeta.color;
+
+    // ML prediction row
+    document.getElementById("pred-val").textContent  = d.predicted_next_day + " AQI";
+    document.getElementById("pred-val").style.color  = predMeta.color;
+    const trendEl = document.getElementById("pred-trend");
+    trendEl.textContent  = d.trend;
+    trendEl.className    = `predict-trend trend-${d.trend}`;
+
+    // Health cards
+    document.getElementById("risk").textContent     = curMeta.risk;
+    document.getElementById("dominant").textContent = d.dominant_pollutant;
+    document.getElementById("outdoor").textContent  = curMeta.outdoor;
+    document.getElementById("mask").textContent     = curMeta.mask;
+
+    // Sub-index breakdown
+    const maxSub = Math.max(...Object.values(d.sub_aqis));
+    const pbList = document.getElementById("pb-list");
+    pbList.innerHTML = "";
+    for (const [name, val] of Object.entries(d.sub_aqis)) {
+      const pct  = maxSub > 0 ? (val/maxSub*100).toFixed(1) : 0;
+      const iMeta = getMeta(val);
+      const row  = document.createElement("div");
+      row.className = "pb-row";
+      row.innerHTML = `
+        <span class="pb-name">${name}</span>
+        <div class="pb-track">
+          <div class="pb-fill" style="background:${iMeta.color}" data-pct="${pct}"></div>
+        </div>
+        <span class="pb-val">${val}</span>`;
+      pbList.appendChild(row);
+    }
+    requestAnimationFrame(() => {
+      document.querySelectorAll(".pb-fill").forEach(el => { el.style.width = el.dataset.pct+"%"; });
+    });
+
+    // Persona advice
+    document.getElementById("advice-text").textContent       = d.persona_advice;
+    document.getElementById("advice-block").style.borderColor = curMeta.color;
+    document.getElementById("advice-label").style.color       = curMeta.color;
+
+    // Hospital alert
+    document.getElementById("hospital-text").textContent = d.hospital_alert;
+
+    // Ambient orbs
+    const c = curMeta.bg;
+    document.getElementById("orb1").style.background = c.replace(/[\d.]+\)$/, "0.28)");
+    document.getElementById("orb2").style.background = c.replace(/[\d.]+\)$/, "0.18)");
+
+    // Show panel
+    const panel = document.getElementById("result");
+    panel.style.display = "block";
+    requestAnimationFrame(() => panel.classList.add("show"));
+  }
+</script>
+</body>
+</html>
