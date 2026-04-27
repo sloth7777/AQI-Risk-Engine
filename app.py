@@ -14,7 +14,7 @@ from flask_jwt_extended import (
     JWTManager, create_access_token,
     jwt_required, get_jwt_identity
 )
-from passlib.hash import bcrypt
+
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
@@ -134,20 +134,21 @@ def login():
 
     user = User.query.filter_by(email=email).first()
 
-    print("USER:", user)
-    print("DB PASSWORD:", user.password if user else None)
-    print("INPUT PASSWORD:", password)
-
+    # auto-create user (your desired behavior)
     if not user:
+        hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+        user = User(email=email, password=hashed_password)
+        db.session.add(user)
+        db.session.commit()
+
+    # verify password
+    if not bcrypt.check_password_hash(user.password, password):
         return jsonify({"error": "Invalid credentials"}), 401
 
-    result = bcrypt.check_password_hash(user.password, password)
-    print("HASH RESULT:", result)
+    # 🔥 THIS WAS MISSING (CRITICAL)
+    token = create_access_token(identity=user.id)
 
-    if not result:
-        return jsonify({"error": "Invalid credentials"}), 401
-
-    return jsonify({"message": "Login successful"}), 200
+    return jsonify({"token": token}), 200
 # ── MAIN ROUTES ───────────────────────────────────────
 @app.route("/")
 def index():

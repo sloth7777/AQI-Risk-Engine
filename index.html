@@ -389,7 +389,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
     });
-
+    localStorage.setItem("token", data.token);
     const data = await res.json().catch(() => ({}));
 
     // 🚨 HARD FIX: treat ANY response as success if no explicit error
