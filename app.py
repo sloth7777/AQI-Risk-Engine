@@ -1,4 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
+from flask_bcrypt import Bcrypt
+
 from flask_cors import CORS
 import numpy as np
 import pandas as pd
@@ -16,7 +18,7 @@ from passlib.hash import bcrypt
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
-
+bcrypt = Bcrypt(app)
 # ── CONFIG ────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -101,28 +103,48 @@ def get_category(aqi):
 @app.route("/signup", methods=["POST"])
 def signup():
     data = request.get_json()
+
+    if not data:
+        return jsonify({"error": "Invalid input format"}), 400
+
     email = data.get("email")
     password = data.get("password")
+
+    if not email or not password:
+        return jsonify({"error": "Missing fields"}), 400
 
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "User exists"}), 400
 
-    user = User(email=email, password=bcrypt.hash(password[:72]))
+    hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+
+    user = User(email=email, password=hashed_password)
+
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({"message": "User created"})
+    return jsonify({"message": "User created"}), 201
 
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
-    user = User.query.filter_by(email=data.get("email")).first()
 
-    if not user or not bcrypt.verify(data.get("password"), user.password):
+    if not data:
+        return jsonify({"error": "Invalid input format"}), 400
+
+    email = data.get("email")
+    password = data.get("password")
+
+    user = User.query.filter_by(email=email).first()
+
+    if not user:
         return jsonify({"error": "Invalid credentials"}), 401
 
-    token = create_access_token(identity=user.id)
-    return jsonify({"token": token})
+    if not bcrypt.check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    return jsonify({"message": "Login successful"}), 200
+
 
 # ── MAIN ROUTES ───────────────────────────────────────
 @app.route("/")

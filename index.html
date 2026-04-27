@@ -332,22 +332,42 @@
 
   // ── Signup ───────────────────────────────────────────────
   async function signup() {
-    const email    = document.getElementById("signup-email").value.trim();
-    const password = document.getElementById("signup-password").value;
-    const errEl    = document.getElementById("signup-err");
-    const okEl     = document.getElementById("signup-ok");
-    errEl.style.display = okEl.style.display = "none";
-    if (!email || !password) { showBanner(errEl, "Email and password required."); return; }
-    try {
-      const res  = await fetch(`${API}/signup`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({email, password}) });
-      const data = await res.json();
-      if (!res.ok) { showBanner(errEl, data.error || "Signup failed."); return; }
-      showBanner(okEl, "Account created! You can now login.");
-      switchTab("login");
-      document.getElementById("login-email").value = email;
-    } catch { showBanner(errEl, "Cannot reach server."); }
+  const email = document.getElementById("signup-email").value.trim();
+  const password = document.getElementById("signup-password").value;
+
+  const errEl = document.getElementById("signup-err");
+  const okEl = document.getElementById("signup-ok");
+
+  errEl.style.display = "none";
+  okEl.style.display = "none";
+
+  if (!email || !password) {
+    showBanner(errEl, "Email and password required.");
+    return;
   }
 
+  try {
+    const res = await fetch("https://aqi-risk-engine.onrender.com/signup", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      showBanner(errEl, data.error || "Signup failed.");
+      return;
+    }
+
+    showBanner(okEl, "Account created! You can now login.");
+  } catch (err) {
+    console.log(err);
+    showBanner(errEl, "Server not reachable.");
+  }
+}
   // ── Login ────────────────────────────────────────────────
   async function login() {
     const email    = document.getElementById("login-email").value.trim();
