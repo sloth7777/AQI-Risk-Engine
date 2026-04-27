@@ -107,7 +107,7 @@ def signup():
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "User exists"}), 400
 
-    user = User(email=email, password=bcrypt.hash(password))
+    user = User(email=email, password=bcrypt.hash(password[:72]))
     db.session.add(user)
     db.session.commit()
 
