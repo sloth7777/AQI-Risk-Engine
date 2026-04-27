@@ -129,23 +129,25 @@ def signup():
 def login():
     data = request.get_json()
 
-    if not data:
-        return jsonify({"error": "Invalid input format"}), 400
-
     email = data.get("email")
     password = data.get("password")
 
     user = User.query.filter_by(email=email).first()
 
+    print("USER:", user)
+    print("DB PASSWORD:", user.password if user else None)
+    print("INPUT PASSWORD:", password)
+
     if not user:
         return jsonify({"error": "Invalid credentials"}), 401
 
-    if not bcrypt.check_password_hash(user.password, password):
+    result = bcrypt.check_password_hash(user.password, password)
+    print("HASH RESULT:", result)
+
+    if not result:
         return jsonify({"error": "Invalid credentials"}), 401
 
     return jsonify({"message": "Login successful"}), 200
-
-
 # ── MAIN ROUTES ───────────────────────────────────────
 @app.route("/")
 def index():
