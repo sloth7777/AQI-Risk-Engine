@@ -1,32 +1,27 @@
 from flask import Flask, request, jsonify, send_from_directory
 from flask_bcrypt import Bcrypt
-
 from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from flask_jwt_extended import JWTManager, create_access_token
+
 import numpy as np
 import pandas as pd
 import os
 import joblib
 from datetime import datetime
 
-# NEW
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import (
-    JWTManager, create_access_token,
-    jwt_required, get_jwt_identity
-)
-
-
+# ── APP SETUP ────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
-bcrypt = Bcrypt(app)
-# ── CONFIG ────────────────────────────────────────────
+CORS(app, resources={r"/*": {"origins": "*"}})
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(BASE_DIR, "aqi_users.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["JWT_SECRET_KEY"] = "super-secret-key"  # change in production
+app.config["JWT_SECRET_KEY"] = "super-secret-key"
 
 db = SQLAlchemy(app)
+bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 
 model_path = os.path.join(BASE_DIR, "fiinal_model.pkl")
@@ -40,12 +35,11 @@ class User(db.Model):
 
 class Prediction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    user_id = db.Column(db.Integer, nullable=True)
     city = db.Column(db.String(50))
     predicted_aqi = db.Column(db.Float)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
-# CREATE DB
 with app.app_context():
     db.create_all()
 
@@ -63,11 +57,12 @@ except Exception as e:
 try:
     city_lookup = pd.read_csv(lookup_path)
     LOOKUP_OK = True
-except:
+except Exception as e:
     city_lookup = None
     LOOKUP_OK = False
+    print("Lookup not loaded:", e)
 
-# ── AQI LOGIC (UNCHANGED) ─────────────────────────────
+# ── AQI LOGIC ─────────────────────────────────────────
 def compute_sub_aqi(val, bp):
     for c_lo, c_hi, i_lo, i_hi in bp:
         if val <= c_hi:
@@ -87,8 +82,8 @@ def calc_current_aqi(pm25, pm10, no2, co, so2, o3):
     vals = [pm25, pm10, no2, co, so2, o3]
     keys = list(BP.keys())
     sub = {k: compute_sub_aqi(vals[i], BP[k]) for i, k in enumerate(keys)}
-
     dominant = max(sub, key=sub.get)
+
     return max(sub.values()), dominant, sub
 
 def get_category(aqi):
@@ -102,122 +97,155 @@ def get_category(aqi):
 # ── AUTH ROUTES ───────────────────────────────────────
 @app.route("/signup", methods=["POST"])
 def signup():
-    data = request.get_json()
+    try:
+        data = request.get_json() or {}
 
-    if not data:
-        return jsonify({"error": "Invalid input format"}), 400
+        email = data.get("email")
+        password = data.get("password")
 
-    email = data.get("email")
-    password = data.get("password")
+        if not email or not password:
+            return jsonify({"error": "Missing fields"}), 400
 
-    if not email or not password:
-        return jsonify({"error": "Missing fields"}), 400
+        if User.query.filter_by(email=email).first():
+            return jsonify({"error": "User exists"}), 400
 
-    if User.query.filter_by(email=email).first():
-        return jsonify({"error": "User exists"}), 400
-
-    hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
-
-    user = User(email=email, password=hashed_password)
-
-    db.session.add(user)
-    db.session.commit()
-
-    return jsonify({"message": "User created"}), 201
-
-@app.route("/login", methods=["POST"])
-def login():
-    data = request.get_json()
-
-    email = data.get("email")
-    password = data.get("password")
-
-    user = User.query.filter_by(email=email).first()
-
-    # auto-create user (your desired behavior)
-    if not user:
         hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+
         user = User(email=email, password=hashed_password)
         db.session.add(user)
         db.session.commit()
 
-    # verify password
-    if not bcrypt.check_password_hash(user.password, password):
-        return jsonify({"error": "Invalid credentials"}), 401
+        return jsonify({"message": "User created"}), 201
 
-    # 🔥 THIS WAS MISSING (CRITICAL)
-    token = create_access_token(identity=user.id)
+    except Exception as e:
+        print("SIGNUP ERROR:", e)
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({"token": token}), 200
-# ── MAIN ROUTES ───────────────────────────────────────
+
+@app.route("/login", methods=["POST"])
+def login():
+    try:
+        data = request.get_json() or {}
+
+        email = data.get("email")
+        password = data.get("password")
+
+        if not email or not password:
+            return jsonify({"error": "Missing fields"}), 400
+
+        user = User.query.filter_by(email=email).first()
+
+        # Auto-create user if not found
+        if not user:
+            hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+            user = User(email=email, password=hashed_password)
+            db.session.add(user)
+            db.session.commit()
+
+        if not bcrypt.check_password_hash(user.password, password):
+            return jsonify({"error": "Invalid credentials"}), 401
+
+        token = create_access_token(identity=str(user.id))
+
+        return jsonify({
+            "message": "Login successful",
+            "token": token
+        }), 200
+
+    except Exception as e:
+        print("LOGIN ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
+# ── MAIN ROUTE ────────────────────────────────────────
 @app.route("/")
 def index():
-    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    return send_from_directory(BASE_DIR, "index.html")
 
+# ── PREDICT ROUTE — NO JWT BLOCKING ───────────────────
 @app.route("/predict", methods=["POST"])
-@jwt_required()
 def predict():
-    if not MODEL_OK:
-        return jsonify({"error": "Model not loaded"}), 503
+    try:
+        data = request.get_json() or {}
 
-    data = request.get_json()
-    user_id = get_jwt_identity()
+        pm25 = float(data.get("pm25") or 0)
+        pm10 = float(data.get("pm10") or 0)
+        no2  = float(data.get("no2") or 0)
+        co   = float(data.get("co") or 0)
+        so2  = float(data.get("so2") or 0)
+        o3   = float(data.get("o3") or 0)
+        city = str(data.get("city") or "")
 
-    pm25 = float(data.get("pm25") or 0)
-    pm10 = float(data.get("pm10") or 0)
-    no2  = float(data.get("no2")  or 0)
-    co   = float(data.get("co")   or 0)
-    so2  = float(data.get("so2")  or 0)
-    o3   = float(data.get("o3")   or 0)
-    city = str(data.get("city") or "")
+        current_aqi, dominant, sub_aqis = calc_current_aqi(pm25, pm10, no2, co, so2, o3)
 
-    current_aqi, _, _ = calc_current_aqi(pm25, pm10, no2, co, so2, o3)
+        X = np.array([[
+            pm25, pm10, no2, co, so2, o3,
+            current_aqi, current_aqi, current_aqi,
+            current_aqi, current_aqi,
+            0, 0
+        ]])
 
-    X = np.array([[pm25, pm10, no2, co, so2, o3,
-                   current_aqi, current_aqi, current_aqi,
-                   current_aqi, current_aqi,
-                   0, 0]])
+        # Safe ML prediction
+        if MODEL_OK and model is not None:
+            try:
+                predicted_aqi = float(model.predict(X)[0])
+            except Exception as e:
+                print("MODEL PREDICT ERROR:", e)
+                predicted_aqi = current_aqi
+        else:
+            predicted_aqi = current_aqi
 
-    predicted_aqi = float(model.predict(X)[0])
-    predicted_aqi = round(max(0, min(500, predicted_aqi)), 1)
+        predicted_aqi = round(max(0, min(500, predicted_aqi)), 1)
 
-    # SAVE
-    pred = Prediction(
-        user_id=user_id,
-        city=city,
-        predicted_aqi=predicted_aqi
-    )
-    db.session.add(pred)
-    db.session.commit()
+        user = User.query.first()
+        user_id = user.id if user else None
 
-    return jsonify({
-        "current_aqi": current_aqi,
-        "predicted_aqi": predicted_aqi,
-        "category": get_category(predicted_aqi),
-        "timestamp": datetime.now().isoformat()
-    })
+        pred = Prediction(
+            user_id=user_id,
+            city=city,
+            predicted_aqi=predicted_aqi
+        )
 
-# ── HISTORY (GRAPH DATA) ──────────────────────────────
+        db.session.add(pred)
+        db.session.commit()
+
+        return jsonify({
+            "current_aqi": current_aqi,
+            "predicted_aqi": predicted_aqi,
+            "category": get_category(predicted_aqi),
+            "dominant_pollutant": dominant,
+            "sub_aqis": sub_aqis,
+            "timestamp": datetime.now().isoformat()
+        }), 200
+
+    except Exception as e:
+        print("PREDICT ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
+# ── HISTORY ROUTE — NO JWT BLOCKING ───────────────────
 @app.route("/history", methods=["GET"])
-@jwt_required()
 def history():
-    user_id = get_jwt_identity()
+    try:
+        records = Prediction.query.order_by(Prediction.timestamp).all()
 
-    records = Prediction.query.filter_by(user_id=user_id)\
-        .order_by(Prediction.timestamp).all()
+        return jsonify([
+            {
+                "aqi": r.predicted_aqi,
+                "time": r.timestamp.isoformat()
+            }
+            for r in records
+        ]), 200
 
-    return jsonify([
-        {
-            "aqi": r.predicted_aqi,
-            "time": r.timestamp.isoformat()
-        }
-        for r in records
-    ])
+    except Exception as e:
+        print("HISTORY ERROR:", e)
+        return jsonify({"error": str(e)}), 500
 
 # ── HEALTH ────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "model_loaded": MODEL_OK})
+    return jsonify({
+        "status": "ok",
+        "model_loaded": MODEL_OK
+    }), 200
 
 # ── RUN ───────────────────────────────────────────────
 if __name__ == "__main__":

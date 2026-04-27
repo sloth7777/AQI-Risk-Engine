@@ -384,30 +384,27 @@
   }
 
   try {
-    const res = await fetch(`${API}/login`, {
+    const res = await fetch(`${API}login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password })
     });
-    localStorage.setItem("token", data.token);
+
     const data = await res.json().catch(() => ({}));
 
-    // 🚨 HARD FIX: treat ANY response as success if no explicit error
-    if (!res.ok && !data.token) {
+    if (!res.ok || !data.token) {
       showBanner(errEl, data.error || "Login failed.");
       return;
     }
 
-    const token = data.token || "guest-token";
 
-    localStorage.setItem("token", token);
     localStorage.setItem("email", email);
 
     setLoggedIn(email);
-    loadHistory();
+    await loadHistory();
 
   } catch (e) {
-    console.log(e);
+    console.log("LOGIN ERROR:", e);
     showBanner(errEl, "Cannot reach server.");
   }
 }
@@ -488,7 +485,7 @@
     const token = localStorage.getItem("token");
     if (!token) return;
     try {
-      const res  = await fetch(`${API}/history`, { headers:{"Authorization":"Bearer "+token} });
+      const res  = await fetch(`${API}history`, { headers:{"Authorization":"Bearer "+token} });
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data) || data.length === 0) return;
@@ -561,7 +558,7 @@
     };
 
     try {
-      const res = await fetch(`${API}/predict`, {
+      const res = await fetch(`${API}predict`, {
         method:"POST",
         headers:{"Content-Type":"application/json","Authorization":"Bearer "+token},
         body: JSON.stringify(body),
