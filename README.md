@@ -40,33 +40,6 @@ Beyond numbers, the system translates predictions into **actionable health guida
 
 ---
 
-## 🚀 Getting Started
-
-### 1. Clone the repository
-```bash
-git clone https://github.com/your-username/aqi-risk-engine.git
-cd aqi-risk-engine
-```
-
-### 2. Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Train the model (or use pre-trained)
-```bash
-python ml/train.py
-```
-
-### 4. Run the Flask backend
-```bash
-python backend/app.py
-```
-
-### 5. Open the frontend
-Open `frontend/index.html` in your browser, or visit the deployed URL.
-
----
 
 ## 🧠 Machine Learning Details
 
