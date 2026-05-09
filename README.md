@@ -3,10 +3,6 @@
 
 An end-to-end full-stack web application that predicts next-day Air Quality Index (AQI) using a Random Forest ML model, generates personalized health advisories, and provides hospital-level risk alerts — deployed live on Render.
 
-> **B.Tech CSE Mini Project** | Jamia Hamdard, New Delhi | April 2026  
-> **Author:** Shristi Singh | Enrolment No: 2023-310-225  
-> **Supervisor:** Dr. Kaveri Umesh Kadam
-
 ---
 
 ## 📌 Overview
@@ -87,8 +83,8 @@ Open `frontend/index.html` in your browser, or visit the deployed URL.
 
 | Metric | Value |
 |---|---|
-| RMSE | *(add your value)* |
-| MAE | *(add your value)* |
+| RMSE | 29.8 |
+| MAE | 18..63 |
 | Prediction Latency | < 2 seconds |
 
 ---
